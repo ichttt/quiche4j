@@ -30,4 +30,14 @@ public interface Http3EventListener {
      * Stream was closed.
      */
     void onFinished(long streamId);
+
+    /**
+     * Goaway received, server should init graceful shutdown
+     */
+    default void onGoaway(long streamId) {}
+
+    /**
+     * Goaway received, server should init graceful shutdown
+     */
+    default void onDatagram(long streamId) {}
 }

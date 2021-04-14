@@ -4,9 +4,10 @@ use env_logger::{Builder, Target};
 use jni::objects::{JClass, JList, JString, JValue, ReleaseMode};
 use jni::sys::{jboolean, jbyteArray, jint, jlong, jobject, jobjectArray};
 use jni::JNIEnv;
-use quiche::{h3, Config, Connection, Error, Header, StreamIter, Type};
+use quiche::{h3, h3::NameValue, Config, Connection, Error, Header, StreamIter, Type};
 use std::pin::Pin;
 use std::slice;
+use quiche::h3::Event;
 
 type JNIResult<T> = Result<T, jni::errors::Error>;
 
@@ -921,6 +922,26 @@ fn call_on_finished(env: &JNIEnv, handler: jobject, stream_id: u64) -> JNIResult
     Ok(())
 }
 
+fn call_on_goaway(env: &JNIEnv, handler: jobject, stream_id: u64) -> JNIResult<()> {
+    env.call_method(
+        handler,
+        "onGoaway",
+        "(J)V",
+        &[JValue::Long(stream_id as jlong)],
+    )?;
+    Ok(())
+}
+
+fn call_on_datagram(env: &JNIEnv, handler: jobject, stream_id: u64) -> JNIResult<()> {
+    env.call_method(
+        handler,
+        "onDatagram",
+        "(J)V",
+        &[JValue::Long(stream_id as jlong)],
+    )?;
+    Ok(())
+}
+
 #[no_mangle]
 #[warn(unused_variables)]
 pub extern "system" fn Java_io_quiche4j_http3_Http3Native_quiche_1h3_1conn_1poll(
@@ -943,6 +964,14 @@ pub extern "system" fn Java_io_quiche4j_http3_Http3Native_quiche_1h3_1conn_1poll
         }
         Ok((stream_id, h3::Event::Finished)) => {
             call_on_finished(&env, listener, stream_id).unwrap();
+            stream_id as jlong
+        }
+        Ok((stream_id, h3::Event::GoAway)) => {
+            call_on_goaway(&env, listener, stream_id).unwrap();
+            stream_id as jlong
+        }
+        Ok((stream_id, h3::Event::Datagram)) => {
+            call_on_datagram(&env, listener, stream_id).unwrap();
             stream_id as jlong
         }
         Err(e) => h3_error_code(e) as jlong,
