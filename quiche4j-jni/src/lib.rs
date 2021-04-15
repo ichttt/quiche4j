@@ -360,15 +360,10 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1negotiate_1version(
     let scid = env.convert_byte_array(java_scid).unwrap();
     let dcid = env.convert_byte_array(java_dcid).unwrap();
     let buf_len = env.get_array_length(java_buf).unwrap() as usize;
-    let (ptr, _is_copy) = env.get_byte_array_elements(java_buf).unwrap();
-    let buf: &mut [u8] = unsafe { slice::from_raw_parts_mut(ptr as *mut u8, buf_len) };
+    let arr = env.get_byte_array_elements(java_buf, ReleaseMode::CopyBack).unwrap();
+    let buf: &mut [u8] = unsafe { slice::from_raw_parts_mut(arr.as_ptr() as *mut u8, buf_len) };
     let len = quiche::negotiate_version(&scid[..], &dcid[..], buf);
-    env.release_byte_array_elements(
-        java_buf,
-        unsafe { ptr.as_mut().unwrap() },
-        ReleaseMode::CopyBack,
-    )
-    .unwrap();
+    arr.commit().unwrap();
     match len {
         Ok(v) => v as jint,
         Err(e) => e as jint,
@@ -402,8 +397,8 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1retry(
     let new_scid = env.convert_byte_array(java_new_scid).unwrap();
     let token = env.convert_byte_array(java_token).unwrap();
     let buf_len = env.get_array_length(java_buf).unwrap() as usize;
-    let (ptr, _is_copy) = env.get_byte_array_elements(java_buf).unwrap();
-    let buf: &mut [u8] = unsafe { slice::from_raw_parts_mut(ptr as *mut u8, buf_len) };
+    let arr = env.get_byte_array_elements(java_buf, ReleaseMode::CopyBack).unwrap();
+    let buf: &mut [u8] = unsafe { slice::from_raw_parts_mut(arr.as_ptr() as *mut u8, buf_len) };
     let len = quiche::retry(
         &scid[..],
         &dcid[..],
@@ -412,12 +407,7 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1retry(
         version as u32,
         buf,
     );
-    env.release_byte_array_elements(
-        java_buf,
-        unsafe { ptr.as_mut().unwrap() },
-        ReleaseMode::CopyBack,
-    )
-    .unwrap();
+   arr.commit().unwrap();
     match len {
         Ok(v) => v as jint,
         Err(e) => e as jint,
@@ -451,15 +441,10 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1conn_1send(
 ) -> jint {
     let conn = unsafe { &mut *(ptr as *mut Connection) };
     let buf_len = env.get_array_length(java_buf).unwrap() as usize;
-    let (ptr, _is_copy) = env.get_byte_array_elements(java_buf).unwrap();
-    let buf: &mut [u8] = unsafe { slice::from_raw_parts_mut(ptr as *mut u8, buf_len) };
+    let arr = env.get_byte_array_elements(java_buf, ReleaseMode::CopyBack).unwrap();
+    let buf: &mut [u8] = unsafe { slice::from_raw_parts_mut(arr.as_ptr() as *mut u8, buf_len) };
     let sent_len = conn.send(buf);
-    env.release_byte_array_elements(
-        java_buf,
-        unsafe { ptr.as_mut().unwrap() },
-        ReleaseMode::CopyBack,
-    )
-    .unwrap();
+    arr.commit().unwrap();
     match sent_len {
         Ok(v) => v as jint,
         Err(e) => e as jint,
@@ -652,15 +637,10 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1conn_1stream_1send(
 ) -> jint {
     let conn = unsafe { &mut *(conn_ptr as *mut Connection) };
     let buf_len = env.get_array_length(java_buf).unwrap() as usize;
-    let (ptr, _is_copy) = env.get_byte_array_elements(java_buf).unwrap();
-    let buf: &mut [u8] = unsafe { slice::from_raw_parts_mut(ptr as *mut u8, buf_len) };
+    let arr = env.get_byte_array_elements(java_buf, ReleaseMode::CopyBack).unwrap();
+    let buf: &mut [u8] = unsafe { slice::from_raw_parts_mut(arr.as_ptr() as *mut u8, buf_len) };
     let sent_len = conn.stream_send(stream_id as u64, buf, fin != 0);
-    env.release_byte_array_elements(
-        java_buf,
-        unsafe { ptr.as_mut().unwrap() },
-        ReleaseMode::CopyBack,
-    )
-    .unwrap();
+    arr.commit().unwrap();
     match sent_len {
         Ok(v) => v as jint,
         Err(e) => e as jint,
@@ -991,15 +971,10 @@ pub extern "system" fn Java_io_quiche4j_http3_Http3Native_quiche_1h3_1recv_1body
     let h3_conn = unsafe { &mut *(h3_conn_ptr as *mut h3::Connection) };
     let mut conn = unsafe { &mut *(conn_ptr as *mut Connection) };
     let buf_len = env.get_array_length(java_buf).unwrap() as usize;
-    let (ptr, _is_copy) = env.get_byte_array_elements(java_buf).unwrap();
-    let buf: &mut [u8] = unsafe { slice::from_raw_parts_mut(ptr as *mut u8, buf_len) };
+    let arr = env.get_byte_array_elements(java_buf, ReleaseMode::CopyBack).unwrap();
+    let buf: &mut [u8] = unsafe { slice::from_raw_parts_mut(arr.as_ptr() as *mut u8, buf_len) };
     let body_len = h3_conn.recv_body(&mut conn, stream_id as u64, buf);
-    env.release_byte_array_elements(
-        java_buf,
-        unsafe { ptr.as_mut().unwrap() },
-        ReleaseMode::CopyBack,
-    )
-    .unwrap();
+    arr.commit().unwrap();
     match body_len {
         Ok(v) => v as jint,
         Err(e) => h3_error_code(e) as jint,
