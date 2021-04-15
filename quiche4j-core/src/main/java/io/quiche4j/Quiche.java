@@ -103,6 +103,12 @@ public final class Quiche {
          * Error in congestion control.
          */
         public static final short CONGESTION_CONTROL = -14;
+
+        /**
+         * The specified stream was stopped by the peer.
+         * The error code sent as part of the STOP_SENDING frame is provided as associated data.
+         */
+        public static final short STREAM_STOPPED = -15;
     }
 
     /**

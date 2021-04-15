@@ -4,10 +4,9 @@ use env_logger::{Builder, Target};
 use jni::objects::{JClass, JList, JString, JValue, ReleaseMode};
 use jni::sys::{jboolean, jbyteArray, jint, jlong, jobject, jobjectArray};
 use jni::JNIEnv;
-use quiche::{h3, h3::NameValue, Config, Connection, Error, Header, StreamIter, Type};
+use quiche::{h3, h3::NameValue, Config, Connection, Error, Header, StreamIter, Type, ConnectionId};
 use std::pin::Pin;
 use std::slice;
-use quiche::h3::Event;
 
 type JNIResult<T> = Result<T, jni::errors::Error>;
 
@@ -30,6 +29,33 @@ fn h3_error_code(error: h3::Error) -> i32 {
         h3::Error::QpackDecompressionFailed => -11,
         h3::Error::TransportError { .. } => -12,
         h3::Error::StreamBlocked => -13,
+        h3::Error::SettingsError => -14,
+        h3::Error::RequestRejected => -15,
+        h3::Error::RequestCancelled => -16,
+        h3::Error::RequestIncomplete => -17,
+        h3::Error::MessageError => -18,
+        h3::Error::ConnectError => -19,
+        h3::Error::VersionFallback => -20,
+    }
+}
+
+fn quiche_error_code(error: quiche::Error) -> i32 {
+    match error {
+        Error::Done => -1,
+        Error::BufferTooShort => -2,
+        Error::UnknownVersion => -3,
+        Error::InvalidFrame => -4,
+        Error::InvalidPacket => -5,
+        Error::InvalidState => -6,
+        Error::InvalidStreamState => -7,
+        Error::InvalidTransportParam => -8,
+        Error::CryptoFail => -9,
+        Error::TlsFail => -10,
+        Error::FlowControl => -11,
+        Error::StreamLimit => -12,
+        Error::FinalSize => -13,
+        Error::CongestionControl => -14,
+        Error::StreamStopped( .. ) => -15,
     }
 }
 
@@ -136,7 +162,7 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1config_1set_1application_
     let protos_bytes: Vec<u8> = env.convert_byte_array(protos).unwrap();
     match config.set_application_protos(&protos_bytes[..]) {
         Ok(_) => 0 as jint,
-        Err(e) => e as jint,
+        Err(e) => quiche_error_code(e) as jint,
     }
 }
 
@@ -161,7 +187,7 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1config_1set_1max_1udp_1pa
     v: jlong,
 ) {
     let config = unsafe { &mut *(config_ptr as *mut Config) };
-    config.set_max_udp_payload_size(v as u64);
+    config.set_max_recv_udp_payload_size(v as usize);
 }
 
 #[no_mangle]
@@ -284,7 +310,7 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1config_1set_1cc_1algorith
     let name_str: String = env.get_string(name).unwrap().into();
     match config.set_cc_algorithm_name(&name_str) {
         Ok(_) => 0 as jint,
-        Err(e) => e as jint,
+        Err(e) => quiche_error_code(e) as jint,
     }
 }
 
@@ -311,18 +337,18 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1accept(
 ) -> jlong {
     let mut config = unsafe { &mut *(config_ptr as *mut Config) };
     let scid: Vec<u8> = env.convert_byte_array(scid_java).unwrap();
-    let odcid: Option<Vec<u8>> = if odcid_java.is_null() {
+    let odcid: Option<ConnectionId> = if odcid_java.is_null() {
         None
     } else {
         let buf = env.convert_byte_array(odcid_java).unwrap();
         match buf.len() {
             0 => None,
-            _ => Some(buf),
+            _ => Some(ConnectionId::from(buf)),
         }
     };
-    match quiche::accept(&scid[..], odcid.as_ref().map(|id| &id[..]), &mut config) {
+    match quiche::accept(&ConnectionId::from_ref(&scid[..]), odcid.as_ref(), &mut config) {
         Ok(conn) => Box::into_raw(Pin::into_inner(conn)) as jlong,
-        Err(e) => e as jlong,
+        Err(e) => quiche_error_code(e) as jlong,
     }
 }
 
@@ -342,9 +368,9 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1connect(
     };
     let mut config = unsafe { &mut *(config_ptr as *mut Config) };
     let scid: Vec<u8> = env.convert_byte_array(conn_id).unwrap();
-    match quiche::connect(domain.as_ref().map(String::as_str), &scid, &mut config) {
+    match quiche::connect(domain.as_ref().map(String::as_str), &ConnectionId::from_ref(&scid), &mut config) {
         Ok(conn) => Box::into_raw(Pin::into_inner(conn)) as jlong,
-        Err(e) => e as jlong,
+        Err(e) => quiche_error_code(e) as jlong,
     }
 }
 
@@ -362,11 +388,11 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1negotiate_1version(
     let buf_len = env.get_array_length(java_buf).unwrap() as usize;
     let arr = env.get_byte_array_elements(java_buf, ReleaseMode::CopyBack).unwrap();
     let buf: &mut [u8] = unsafe { slice::from_raw_parts_mut(arr.as_ptr() as *mut u8, buf_len) };
-    let len = quiche::negotiate_version(&scid[..], &dcid[..], buf);
+    let len = quiche::negotiate_version(&ConnectionId::from_ref(&scid[..]), &ConnectionId::from_ref(&dcid[..]), buf);
     arr.commit().unwrap();
     match len {
         Ok(v) => v as jint,
-        Err(e) => e as jint,
+        Err(e) => quiche_error_code(e) as jint,
     }
 }
 
@@ -400,9 +426,9 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1retry(
     let arr = env.get_byte_array_elements(java_buf, ReleaseMode::CopyBack).unwrap();
     let buf: &mut [u8] = unsafe { slice::from_raw_parts_mut(arr.as_ptr() as *mut u8, buf_len) };
     let len = quiche::retry(
-        &scid[..],
-        &dcid[..],
-        &new_scid[..],
+        &ConnectionId::from_ref(&scid[..]),
+        &ConnectionId::from_ref(&dcid[..]),
+        &ConnectionId::from_ref(&new_scid[..]),
         &token[..],
         version as u32,
         buf,
@@ -410,7 +436,7 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1retry(
    arr.commit().unwrap();
     match len {
         Ok(v) => v as jint,
-        Err(e) => e as jint,
+        Err(e) => quiche_error_code(e) as jint,
     }
 }
 
@@ -427,7 +453,7 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1conn_1recv(
     let mut buf = env.convert_byte_array(java_buf).unwrap();
     match conn.recv(&mut buf) {
         Ok(v) => v as jint,
-        Err(e) => e as jint,
+        Err(e) => quiche_error_code(e) as jint,
     }
 }
 
@@ -447,7 +473,7 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1conn_1send(
     arr.commit().unwrap();
     match sent_len {
         Ok(v) => v as jint,
-        Err(e) => e as jint,
+        Err(e) => quiche_error_code(e) as jint,
     }
 }
 
@@ -465,7 +491,7 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1conn_1close(
     let reason_bytes = env.convert_byte_array(reason).unwrap();
     match conn.close(app != 0, error as u64, &reason_bytes[..]) {
         Ok(_) => 0 as jint,
-        Err(e) => e as jint,
+        Err(e) => quiche_error_code(e) as jint,
     }
 }
 
@@ -620,7 +646,7 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1conn_1stream_1recv(
     match conn.stream_recv(stream_id as u64, &mut buf) {
         // xxx(okachaiev): find a way to convey this information
         Ok((out_len, _out_fin)) => out_len as i32,
-        Err(e) => e as jint,
+        Err(e) => quiche_error_code(e) as jint,
     }
 }
 
@@ -643,7 +669,7 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1conn_1stream_1send(
     arr.commit().unwrap();
     match sent_len {
         Ok(v) => v as jint,
-        Err(e) => e as jint,
+        Err(e) => quiche_error_code(e) as jint,
     }
 }
 
@@ -680,7 +706,7 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1conn_1stream_1capacity(
     let conn = unsafe { &mut *(conn_ptr as *mut Connection) };
     match conn.stream_capacity(stream_id as u64) {
         Ok(v) => v as jint,
-        Err(e) => e as jint,
+        Err(e) => quiche_error_code(e) as jint,
     }
 }
 
@@ -728,7 +754,7 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1stream_1iter_1next(
     let stream_iter = unsafe { &mut *(stream_iter_ptr as *mut StreamIter) };
     match stream_iter.next() {
         Some(stream_id) => stream_id as jlong,
-        None => Error::Done as jlong,
+        None => -1 as jlong,
     }
 }
 
