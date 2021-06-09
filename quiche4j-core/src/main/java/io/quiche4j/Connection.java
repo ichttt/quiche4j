@@ -43,8 +43,8 @@ public class Connection {
      *     }
      * </pre>
      */
-    public final int recv(byte[] buf) {
-        return Native.quiche_conn_recv(getPointer(), buf);
+    public final int recv(byte[] buf, QuicheSocketAddress socketAddress) {
+        return Native.quiche_conn_recv(getPointer(), buf, socketAddress.getPointer());
     }
 
     /**

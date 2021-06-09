@@ -2,11 +2,13 @@ extern crate jni;
 
 use env_logger::{Builder, Target};
 use jni::objects::{JClass, JList, JString, JValue, ReleaseMode};
-use jni::sys::{jboolean, jbyteArray, jint, jlong, jobject, jobjectArray};
+use jni::sys::{jboolean, jbyteArray, jint, jlong, jobject, jobjectArray, jshort};
 use jni::JNIEnv;
 use quiche::{h3, h3::NameValue, Config, Connection, Error, Header, StreamIter, Type, ConnectionId};
 use std::pin::Pin;
 use std::slice;
+use std::net::{SocketAddr, IpAddr};
+use std::str::FromStr;
 
 type JNIResult<T> = Result<T, jni::errors::Error>;
 
@@ -47,7 +49,7 @@ fn quiche_error_code(error: quiche::Error) -> i32 {
         Error::InvalidFrame => -4,
         Error::InvalidPacket => -5,
         Error::InvalidState => -6,
-        Error::InvalidStreamState => -7,
+        Error::InvalidStreamState( .. ) => -7,
         Error::InvalidTransportParam => -8,
         Error::CryptoFail => -9,
         Error::TlsFail => -10,
@@ -328,14 +330,29 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1config_1enable_1hystart(
 
 #[no_mangle]
 #[warn(unused_variables)]
+pub extern "system" fn Java_io_quiche4j_Native_quiche_1socket_1address_1new(
+    env: JNIEnv,
+    _class: JClass,
+    ip_from: JString,
+    port_from: jshort,
+) -> jlong {
+    let string_from: String = env.get_string(ip_from).unwrap().into();
+    let from = SocketAddr::new(IpAddr::from_str(&string_from).unwrap(), port_from as u16);
+    Box::into_raw(Box::new(from)) as jlong
+}
+
+#[no_mangle]
+#[warn(unused_variables)]
 pub extern "system" fn Java_io_quiche4j_Native_quiche_1accept(
     env: JNIEnv,
     _class: JClass,
     scid_java: jbyteArray,
     odcid_java: jbyteArray,
     config_ptr: jlong,
+    socket_address_ptr: jlong,
 ) -> jlong {
     let mut config = unsafe { &mut *(config_ptr as *mut Config) };
+    let mut socket_address = unsafe { &mut *(socket_address_ptr as *mut SocketAddr) };
     let scid: Vec<u8> = env.convert_byte_array(scid_java).unwrap();
     let odcid: Option<ConnectionId> = if odcid_java.is_null() {
         None
@@ -346,7 +363,7 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1accept(
             _ => Some(ConnectionId::from(buf)),
         }
     };
-    match quiche::accept(&ConnectionId::from_ref(&scid[..]), odcid.as_ref(), &mut config) {
+    match quiche::accept(&ConnectionId::from_ref(&scid[..]), odcid.as_ref(), *socket_address, &mut config) {
         Ok(conn) => Box::into_raw(Pin::into_inner(conn)) as jlong,
         Err(e) => quiche_error_code(e) as jlong,
     }
@@ -360,6 +377,7 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1connect(
     domain: JString,
     conn_id: jbyteArray,
     config_ptr: jlong,
+    socket_address_ptr: jlong,
 ) -> jlong {
     let domain: Option<String> = if domain.is_null() {
         None
@@ -367,8 +385,9 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1connect(
         Some(convert_to_string(&env, domain).unwrap())
     };
     let mut config = unsafe { &mut *(config_ptr as *mut Config) };
+    let mut socket_address = unsafe { &mut *(socket_address_ptr as *mut SocketAddr) };
     let scid: Vec<u8> = env.convert_byte_array(conn_id).unwrap();
-    match quiche::connect(domain.as_ref().map(String::as_str), &ConnectionId::from_ref(&scid), &mut config) {
+    match quiche::connect(domain.as_ref().map(String::as_str), &ConnectionId::from_ref(&scid), *socket_address, &mut config) {
         Ok(conn) => Box::into_raw(Pin::into_inner(conn)) as jlong,
         Err(e) => quiche_error_code(e) as jlong,
     }
@@ -447,11 +466,15 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1conn_1recv(
     _class: JClass,
     ptr: jlong,
     java_buf: jbyteArray,
+    socket_address_ptr: jlong,
 ) -> jint {
     let conn = unsafe { &mut *(ptr as *mut Connection) };
+    let mut socket_address = unsafe { &mut *(socket_address_ptr as *mut SocketAddr) };
     // internally executes GetByteArrayRegion
     let mut buf = env.convert_byte_array(java_buf).unwrap();
-    match conn.recv(&mut buf) {
+
+    let recv_info = quiche::RecvInfo { from: *socket_address };
+    match conn.recv(&mut buf, recv_info) {
         Ok(v) => v as jint,
         Err(e) => quiche_error_code(e) as jint,
     }
@@ -472,7 +495,7 @@ pub extern "system" fn Java_io_quiche4j_Native_quiche_1conn_1send(
     let sent_len = conn.send(buf);
     arr.commit().unwrap();
     match sent_len {
-        Ok(v) => v as jint,
+        Ok(v) => v.0 as jint,
         Err(e) => quiche_error_code(e) as jint,
     }
 }
@@ -811,8 +834,8 @@ fn headers_from_java<'e>(env: &JNIEnv<'e>, headers: jobjectArray) -> JNIResult<V
             .call_method(jobj, "value", "()Ljava/lang/String;", &[])?
             .l()?;
         buf.push(h3::Header::new(
-            &convert_to_string(&env, name)?,
-            &convert_to_string(&env, value)?,
+            &convert_to_string(&env, name)?.as_bytes(),
+            &convert_to_string(&env, value)?.as_bytes(),
         ));
     }
     Ok(buf)
@@ -891,8 +914,8 @@ fn call_on_headers(
                 HTTP3_HEADER_CLASS,
                 "(Ljava/lang/String;Ljava/lang/String;)V",
                 &[
-                    JValue::from(env.new_string(header.name()).unwrap()),
-                    JValue::from(env.new_string(header.value()).unwrap()),
+                    JValue::from(env.new_string(std::str::from_utf8(header.name()).unwrap()).unwrap()),
+                    JValue::from(env.new_string(std::str::from_utf8(header.value()).unwrap()).unwrap()),
                 ],
             )
             .unwrap();

@@ -79,9 +79,11 @@ public final class Native {
 
 	// CONNECTION
 
-	public final static native long quiche_accept(byte[] scid, byte[] odcid, long config_ptr);
+	public final static native long quiche_socket_address_new(String ipAddress, long port);
 
-	public final static native long quiche_connect(String server_name, byte[] scid, long config_ptr);
+	public final static native long quiche_accept(byte[] scid, byte[] odcid, long config_ptr, long socket_address_ptr);
+
+	public final static native long quiche_connect(String server_name, byte[] scid, long config_ptr, long socket_address_ptr);
 
 	public final static native int quiche_negotiate_version(byte[] scid, byte[] dcid, byte[] buf);
 
@@ -91,7 +93,7 @@ public final class Native {
 		byte[] sourceConnId, byte[] destinationConnId, byte[] newSourceConnId,
 		byte[] token, int version, byte[] buf);
 
-	public final static native int quiche_conn_recv(long conn_ptr, byte[] buf);
+	public final static native int quiche_conn_recv(long conn_ptr, byte[] buf, long socket_address_ptr);
 
 	public final static native int quiche_conn_send(long conn_ptr, byte[] buf);
 

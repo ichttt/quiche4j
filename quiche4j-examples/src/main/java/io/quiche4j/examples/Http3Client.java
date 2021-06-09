@@ -14,17 +14,13 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import io.quiche4j.Config;
-import io.quiche4j.ConfigBuilder;
-import io.quiche4j.Connection;
+import io.quiche4j.*;
 import io.quiche4j.http3.Http3;
 import io.quiche4j.http3.Http3Config;
 import io.quiche4j.http3.Http3ConfigBuilder;
 import io.quiche4j.http3.Http3Connection;
 import io.quiche4j.http3.Http3EventListener;
 import io.quiche4j.http3.Http3Header;
-import io.quiche4j.Quiche;
-import io.quiche4j.Utils;
 
 public class Http3Client {
 
@@ -70,7 +66,8 @@ public class Http3Client {
             .build();
 
         final byte[] connId = Quiche.newConnectionId();
-        final Connection conn = Quiche.connect(uri.getHost(), connId, config);
+        final QuicheSocketAddress socketAddress = new QuicheSocketAddress(address.getHostAddress(), port);
+        final Connection conn = Quiche.connect(uri.getHost(), connId, config, socketAddress);
 
         int len = 0;
         final byte[] buffer = new byte[MAX_DATAGRAM_SIZE];
@@ -105,7 +102,7 @@ public class Http3Client {
 
                     // xxx(okachaiev): if we extend `recv` API to deal with optional buf len,
                     // we could avoid Arrays.copy here
-                    final int read = conn.recv(Arrays.copyOfRange(packet.getData(), packet.getOffset(), recvBytes));
+                    final int read = conn.recv(Arrays.copyOfRange(packet.getData(), packet.getOffset(), recvBytes), socketAddress);
                     if (read < 0 && read != Quiche.ErrorCode.DONE) {
                         System.out.println("> conn.recv failed " + read);
 

@@ -13,19 +13,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import io.quiche4j.Config;
-import io.quiche4j.ConfigBuilder;
-import io.quiche4j.Connection;
+import io.quiche4j.*;
 import io.quiche4j.http3.Http3;
 import io.quiche4j.http3.Http3Config;
 import io.quiche4j.http3.Http3ConfigBuilder;
 import io.quiche4j.http3.Http3Connection;
 import io.quiche4j.http3.Http3Header;
 import io.quiche4j.http3.Http3EventListener;
-import io.quiche4j.PacketHeader;
-import io.quiche4j.PacketType;
-import io.quiche4j.Quiche;
-import io.quiche4j.Utils;
 
 public class Http3Server {
 
@@ -125,6 +119,7 @@ public class Http3Server {
         final AtomicBoolean running = new AtomicBoolean(true);
 
         System.out.println(String.format("! listening on %s:%d", hostname, port));
+        QuicheSocketAddress socketAddress = null;
 
         while (running.get()) {
             // READING
@@ -132,6 +127,7 @@ public class Http3Server {
                 final DatagramPacket packet = new DatagramPacket(buf, buf.length);
                 try {
                     socket.receive(packet);
+                    socketAddress = new QuicheSocketAddress(packet.getAddress().getHostAddress(), port);
                 } catch (SocketTimeoutException e) {
                     // TIMERS
                     for (Client client : clients.values()) {
@@ -222,7 +218,7 @@ public class Http3Server {
                     }
                     sourceConnId = destinationConnId;
 
-                    final Connection conn = Quiche.accept(sourceConnId, odcid, config);
+                    final Connection conn = Quiche.accept(sourceConnId, odcid, config, socketAddress);
 
                     System.out.println("> new connection " + Utils.asHex(sourceConnId));
 
@@ -234,7 +230,7 @@ public class Http3Server {
 
                 // POTENTIALLY COALESCED PACKETS
                 final Connection conn = client.connection();
-                final int read = conn.recv(packetBuf);
+                final int read = conn.recv(packetBuf, socketAddress);
                 if (read < 0 && read != Quiche.ErrorCode.DONE) {
                     System.out.println("> recv failed " + read);
                     break;

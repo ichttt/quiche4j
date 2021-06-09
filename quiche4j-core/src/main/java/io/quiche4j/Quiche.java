@@ -261,9 +261,9 @@ public final class Quiche {
      * 
      * @throws ConnectionFailureException
      */
-    public static final Connection accept(byte[] sourceConnId, byte[] originalDestinationConnId, Config config)
+    public static final Connection accept(byte[] sourceConnId, byte[] originalDestinationConnId, Config config, QuicheSocketAddress socketAddress)
             throws ConnectionFailureException {
-        final long ptr = Native.quiche_accept(sourceConnId, originalDestinationConnId, config.getPointer());
+        final long ptr = Native.quiche_accept(sourceConnId, originalDestinationConnId, config.getPointer(), socketAddress.getPointer());
         if (ptr <= ErrorCode.SUCCESS) {
             throw new ConnectionFailureException(ptr);
         }
@@ -279,9 +279,9 @@ public final class Quiche {
      * 
      * @throws ConnectionFailureException
      */
-    public static final Connection connect(String serverName, byte[] connId, Config config)
+    public static final Connection connect(String serverName, byte[] connId, Config config, QuicheSocketAddress socketAddress)
             throws ConnectionFailureException {
-        final long ptr = Native.quiche_connect(serverName, connId, config.getPointer());
+        final long ptr = Native.quiche_connect(serverName, connId, config.getPointer(), socketAddress.getPointer());
         if (ptr <= ErrorCode.SUCCESS) {
             throw new ConnectionFailureException(ptr);
         }
